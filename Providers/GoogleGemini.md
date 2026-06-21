@@ -2,26 +2,36 @@
 
 `pip install google-genai` · Python 3.9+
 
+The unified `google-genai` SDK is the official package for accessing Google's Gemini models across the Gemini Developer API and Google Cloud Vertex AI.
+
 ---
 
 ## Table of Contents
 
 - [Client Initialization](#client-initialization)
-- [Text Generation / Messages](#text-generation--messages)
+- [Model Management](#model-management)
+- [Text Generation](#text-generation)
+- [Stateful Chat Sessions](#stateful-chat-sessions)
 - [Streaming](#streaming)
 - [Async Usage](#async-usage)
-- [Tool / Function Calling](#tool--function-calling)
+- [Files API (Multimodal Uploads)](#files-api-multimodal-uploads)
+- [Context Caching](#context-caching)
+- [Tool & Function Calling](#tool--function-calling)
+- [Google Search Grounding](#google-search-grounding)
 - [Vision / Multimodal](#vision--multimodal)
 - [Structured Outputs](#structured-outputs)
+- [Model Tuning (Fine-Tuning)](#model-tuning-fine-tuning)
+- [Image Generation (Imagen)](#image-generation-imagen)
+- [Gemini Live API (WebSockets)](#gemini-live-api-websockets)
 - [Embeddings](#embeddings)
 - [Error Handling](#error-handling)
-- [Utilities & Metadata](#utilities--metadata)
+- [Utilities, Token Counting & Metadata](#utilities-token-counting--metadata)
 
 ---
 
 ## Client Initialization
 
-Initialize the client for Developer API or Vertex AI mode.
+Initialize the client for standard Developer API or Google Cloud Vertex AI mode.
 
 ### `class google.genai.Client`
 
@@ -58,7 +68,31 @@ async_client = genai.Client().aio
 
 ---
 
-## Text Generation / Messages
+## Model Management
+
+Query and manage the metadata of available models.
+
+### `client.models.list()` & `client.models.get(...)`
+
+```python
+from google import genai
+
+client = genai.Client()
+
+# 1. List all available models
+print("Available Models:")
+for model in client.models.list():
+    print(f"- {model.name} (Supported actions: {model.supported_generation_methods})")
+
+# 2. Get details for a specific model
+model_info = client.models.get(model="gemini-2.5-flash")
+print(f"\nModel: {model_info.name}")
+print(f"Input Token Limit: {model_info.input_token_limit}")
+```
+
+---
+
+## Text Generation
 
 Sends a content generation request to the model.
 
@@ -97,31 +131,74 @@ print(response.text)
 
 ---
 
-## Streaming
+## Stateful Chat Sessions
 
-Streams text generation chunks iteratively.
+Create stateful, multi-turn chat sessions where conversation history is automatically maintained by the client.
 
-### `client.models.generate_content_stream(...)`
+### `client.chats.create(...)`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `model` | `str` | *Required* | Targeted model identifier. |
-| `contents` | `str \| list` | *Required* | Text blocks or combined asset references. |
-| `config` | `types.GenerateContentConfig` | `None` | Generation parameters block object. |
+| `model` | `str` | *Required* | Model identifier for the chat session. |
+| `config` | `types.GenerateContentConfig` | `None` | System instructions, safety settings, temperature, and other configuration parameters. |
+| `history` | `list` | `None` | Pre-populate the conversation history with list of `types.Content`. |
+
+```python
+from google import genai
+from google.genai import types
+
+client = genai.Client()
+
+# 1. Create a stateful chat session
+chat = client.chats.create(
+    model="gemini-2.5-flash",
+    config=types.GenerateContentConfig(
+        system_instruction="Speak like a medieval knight.",
+        temperature=0.7
+    )
+)
+
+# 2. Send the first message
+response1 = chat.send_message("My kingdom is facing a draught. What should I do?")
+print(f"Knight: {response1.text}\n")
+
+# 3. Send a follow-up (history is automatically passed)
+response2 = chat.send_message("Do you know of any wizards who can help?")
+print(f"Knight: {response2.text}\n")
+
+# 4. Access the full message history
+for message in chat.get_history():
+    print(f"[{message.role}]: {message.parts[0].text}")
+```
+
+---
+
+## Streaming
+
+Stream generated content chunks in real-time as they are produced by the model.
+
+### `client.models.generate_content_stream(...)` & `chat.send_message_stream(...)`
 
 ```python
 from google import genai
 
 client = genai.Client()
 
-# 1. Initialize text generation chunk stream
+# 1. Single-turn streaming
 response_stream = client.models.generate_content_stream(
     model="gemini-2.5-flash",
     contents="Tell a lengthy story describing the lifecycle of an apple tree."
 )
 
-# 2. Loop continuously over iterative chunks returned from network
 for chunk in response_stream:
+    print(chunk.text, end="", flush=True)
+print("\n")
+
+# 2. Chat session streaming
+chat = client.chats.create(model="gemini-2.5-flash")
+chat_stream = chat.send_message_stream("Write a short poem about coding.")
+
+for chunk in chat_stream:
     print(chunk.text, end="", flush=True)
 print()
 ```
@@ -130,41 +207,140 @@ print()
 
 ## Async Usage
 
-Use the native asynchronous client sub-layer `.aio`.
+Use the native asynchronous layer of the SDK for concurrent and non-blocking operations.
 
 ```python
 import asyncio
 from google import genai
 
-# 1. Initialize client and point explicitly to the asynchronous sub-layer
 client = genai.Client()
-async_client = client.aio
 
 async def main():
-    # 2. Execute standard non-blocking invocation
-    response = await async_client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents="Give me an unique name for an indie tech start-up."
-    )
-    print(response.text)
-    
-    # 3. Stream chunks over asynchronous loop interfaces
-    stream_response = await async_client.models.generate_content_stream(
-        model="gemini-2.5-flash",
-        contents="Write a 3 paragraph essay about photosynthesis."
-    )
-    async for chunk in stream_response:
-        print(chunk.text, end="", flush=True)
+    # 1. Use client.aio context manager to clean up resources automatically
+    async with genai.Client().aio as aclient:
+        # 2. Execute standard non-blocking invocation
+        response = await aclient.models.generate_content(
+            model="gemini-2.5-flash",
+            contents="Give me an unique name for an indie tech start-up."
+        )
+        print(f"Company Name: {response.text}\n")
+        
+        # 3. Stream chunks over asynchronous loop interfaces
+        stream_response = await aclient.models.generate_content_stream(
+            model="gemini-2.5-flash",
+            contents="Write a 3 paragraph essay about photosynthesis."
+        )
+        async for chunk in stream_response:
+            print(chunk.text, end="", flush=True)
+        print("\n")
+
+        # 4. Async Chat Streaming
+        async_chat = aclient.chats.create(model="gemini-2.5-flash")
+        # Await the stream method itself, then iterate using async for
+        async_chat_stream = await async_chat.send_message_stream("Explain recursion in one sentence.")
+        async for chunk in async_chat_stream:
+            print(chunk.text, end="", flush=True)
+        print()
 
 if __name__ == "__main__":
+    # Ensure correct event loop runner
     asyncio.run(main())
 ```
 
 ---
 
-## Tool / Function Calling
+## Files API (Multimodal Uploads)
 
-Configure executable tools and function references.
+Upload large assets (documents, images, videos, audio) for processing by models with large context windows.
+
+### `client.files.upload(...)`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `file` | `str \| io.BytesIO` | *Required* | Path to a local file, or a bytes-like file object to upload. |
+| `mime_type` | `str` | `None` | Explicitly set the MIME type. Highly recommended for files without extensions. |
+
+```python
+from google import genai
+
+client = genai.Client()
+
+# 1. Upload a large video file or document
+uploaded_file = client.files.upload(file="large_manual.pdf")
+print(f"File uploaded. Resource Name: {uploaded_file.name}")
+
+# 2. Reference the uploaded file directly in generate_content
+response = client.models.generate_content(
+    model="gemini-2.5-flash",
+    contents=[uploaded_file, "Summarize section 4.2 of this manual."]
+)
+print(response.text)
+
+# 3. List uploaded files
+print("\nUploaded Files:")
+for file in client.files.list():
+    print(f"- {file.display_name} (Name: {file.name})")
+
+# 4. Clean up / delete the file from Google servers
+client.files.delete(name=uploaded_file.name)
+print(f"Deleted file: {uploaded_file.name}")
+```
+
+---
+
+## Context Caching
+
+Cache massive, static datasets (e.g., long videos, entire codebases, large manuals) to significantly reduce latency and token costs for repeated queries.
+
+### `client.caches.create(...)`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `model` | `str` | *Required* | The model you plan to query with this cache. |
+| `config` | `types.CreateCachedContentConfig` | *Required* | Configuration specifying `contents`, `ttl` (e.g. `"3600s"`), and optionally `system_instruction` / `tools`. |
+
+```python
+from google import genai
+from google.genai import types
+
+client = genai.Client()
+
+# 1. Upload a heavy document first
+large_doc = client.files.upload(file="corporate_knowledgebase.pdf")
+
+# 2. Create the context cache (must specify model and ttl)
+cache = client.caches.create(
+    model="gemini-2.5-flash",
+    config=types.CreateCachedContentConfig(
+        contents=[large_doc],
+        ttl="1800s", # Time To Live: 30 minutes
+        display_name="corporate_manual_cache"
+    )
+)
+print(f"Cache created. Name: {cache.name}, Expires: {cache.expire_time}")
+
+# 3. Query the model using the cache
+response = client.models.generate_content(
+    model="gemini-2.5-flash",
+    contents="What is the policy on remote work?",
+    config=types.GenerateContentConfig(
+        cached_content=cache.name
+    )
+)
+print(response.text)
+
+# 4. List all caches and clean up by deleting
+for c in client.caches.list():
+    print(f"Cache ID: {c.name}")
+
+client.caches.delete(name=cache.name)
+```
+
+---
+
+## Tool & Function Calling
+
+Provide python functions to the model as executable tools. The model can automatically declare which function to invoke and parse the parameters.
 
 ### `class types.GenerateContentConfig(tools, tool_config)`
 
@@ -179,7 +355,7 @@ from google.genai import types
 
 client = genai.Client()
 
-# 1. Define python target execution functions
+# 1. Define python target execution functions with type hints and docstrings
 def calculate_shipping_cost(destination: str, weight: float) -> float:
     """Calculate target logistics shipping costs based on weights and cities.
 
@@ -230,9 +406,49 @@ if response.function_calls:
 
 ---
 
+## Google Search Grounding
+
+Ground the model's responses in Google Search. The model will search Google and retrieve up-to-date information, providing search grounding metadata.
+
+```python
+from google import genai
+from google.genai import types
+
+client = genai.Client()
+
+# 1. Configure the google_search tool
+grounding_tool = types.Tool(
+    google_search=types.GoogleSearch()
+)
+
+config = types.GenerateContentConfig(
+    tools=[grounding_tool],
+    temperature=0.0 # Set low temperature for factuality
+)
+
+# 2. Call the model
+response = client.models.generate_content(
+    model="gemini-2.5-flash",
+    contents="Who won the UEFA Champions League final in 2026?",
+    config=config
+)
+
+print(response.text)
+
+# 3. Inspect grounding metadata and search suggestions
+if response.candidates[0].grounding_metadata:
+    metadata = response.candidates[0].grounding_metadata
+    print("\nGrounding Sources:")
+    for chunk in metadata.grounding_chunks:
+        if chunk.web:
+            print(f"- {chunk.web.title}: {chunk.web.uri}")
+```
+
+---
+
 ## Vision / Multimodal
 
-Pass image and asset references directly inside contents array.
+Submit combination arrays of images, videos, audio, and text directly to the model.
 
 ```python
 from PIL import Image
@@ -258,7 +474,7 @@ print(response.text)
 
 ## Structured Outputs
 
-Define target JSON schemas to enforce structured model outputs.
+Enforce output validation schemas to guarantee response structures.
 
 ### `class types.GenerateContentConfig(response_mime_type, response_schema)`
 
@@ -301,9 +517,125 @@ print(structured_json["movie_title"], structured_json["score"])
 
 ---
 
+## Model Tuning (Fine-Tuning)
+
+Initiate and monitor supervised fine-tuning jobs on Gemini base models.
+
+### `client.tunings.create(...)`
+
+```python
+from google import genai
+from google.genai import types
+
+client = genai.Client()
+
+# 1. Launch a fine-tuning job
+# Data must contain supervised conversation examples (e.g. types.TuningDataset)
+tuning_job = client.tunings.create(
+    model="models/gemini-1.5-flash-001",
+    training_data=types.TuningDataset(
+        gcs_uri="gs://my-bucket-name/training_data.jsonl"
+    ),
+    config=types.CreateTuningJobConfig(
+        epoch_count=5,
+        batch_size=4,
+        learning_rate=0.001
+    )
+)
+print(f"Tuning job started. ID: {tuning_job.name}, Status: {tuning_job.state}")
+
+# 2. Monitor or get details on a tuning job
+status = client.tunings.get(name=tuning_job.name)
+print(f"Current state: {status.state}")
+
+# 3. Use the tuned model once the state is FINISHED
+if status.state == "FINISHED":
+    response = client.models.generate_content(
+        model=status.tuned_model.model, # Reference the tuned model path
+        contents="Predict next token based on training style."
+    )
+    print(response.text)
+```
+
+---
+
+## Image Generation (Imagen)
+
+Generate images programmatically using Google's Imagen model.
+
+### `client.models.generate_images(...)`
+
+```python
+from google import genai
+from google.genai import types
+
+client = genai.Client()
+
+# 1. Generate an image from a prompt
+response = client.models.generate_images(
+    model="imagen-3.0-generate-002",
+    prompt="A futuristic city with flying cars at sunset, high detailed, 4k",
+    config=types.GenerateImagesConfig(
+        number_of_images=1,
+        aspect_ratio="16:9",
+        output_mime_type="image/jpeg"
+    )
+)
+
+# 2. Save or show the generated image
+for idx, image in enumerate(response.generated_images):
+    # Image bytes are accessible via the image.image property
+    image.image.show()
+    image.image.save(f"generated_output_{idx}.jpg")
+```
+
+---
+
+## Gemini Live API (WebSockets)
+
+Access low-latency, real-time, bidirectional audio, video, and text interactions over WebSockets using the async client wrapper.
+
+### `client.aio.live.connect(...)`
+
+```python
+import asyncio
+from google import genai
+
+client = genai.Client()
+
+async def run_live_agent():
+    # 1. Establish the connection session context
+    # Use the live preview model that supports real-time WebSocket interactions
+    model = "gemini-3.1-flash-live-preview"
+    config = {"response_modalities": ["AUDIO"]}
+
+    async with client.aio.live.connect(model=model, config=config) as session:
+        print("Live Session connected successfully. Start talking...")
+        
+        # Send text input to the model
+        await session.send(input={"text": "Hello, Gemini! Can you hear me?"})
+        
+        # Listen for real-time responses from the server
+        async for response in session.receive():
+            server_content = response.server_content
+            if server_content and server_content.model_turn:
+                for part in server_content.model_turn.parts:
+                    # Capture text chunk or raw audio bytes
+                    if part.text:
+                        print(part.text, end="", flush=True)
+                    elif part.inline_data:
+                        # part.inline_data.data contains the PCM raw audio payload
+                        pass
+
+if __name__ == "__main__":
+    asyncio.run(run_live_agent())
+```
+
+---
+
 ## Embeddings
 
-Convert strings and texts into numeric vector representations.
+Convert string inputs into numeric vector representations for downstream tasks (similarity search, classification, clustering).
 
 ### `client.models.embed_content(...)`
 
@@ -333,14 +665,13 @@ print(f"Generated Vector Dimensions Length Count: {len(vector_values)}")
 
 ## Error Handling
 
-Manage API failures and request exceptions.
+Handle standard errors, rate limits, and network issues gracefully using the client exception hierarchy.
 
 ### Exception Hierarchy Reference
-
 ```
 google.genai.errors.APIError
- ├── google.genai.errors.ClientError  (4xx Errors)
- └── google.genai.errors.ServerError  (5xx Errors)
+ ├── google.genai.errors.ClientError  (4xx Errors, e.g. 400, 401, 403, 404, 429)
+ └── google.genai.errors.ServerError  (5xx Errors, e.g. 500, 503)
 ```
 
 ```python
@@ -368,9 +699,24 @@ except errors.APIError as e:
 
 ---
 
-## Utilities & Metadata
+## Utilities, Token Counting & Metadata
 
-Inspect execution telemetry and metadata.
+Query token statistics and inspect complete telemetry logs.
+
+### `client.models.count_tokens(...)`
+
+```python
+from google import genai
+
+client = genai.Client()
+
+# 1. Calculate input token volume before sending queries
+token_info = client.models.count_tokens(
+    model="gemini-2.5-flash",
+    contents="What are the basic ingredients of a bread dough recipe?"
+)
+print(f"Token Count: {token_info.total_tokens}")
+```
 
 ### Response Objects Field Map Reference
 
