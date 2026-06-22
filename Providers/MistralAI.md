@@ -1,466 +1,800 @@
-# Mistral AI Python SDK
+# Mistral AI SDK Reference
 
-`pip install mistralai` · Python 3.9+
+**Latest Update**: June 2026  
+**Official Docs**: [docs.mistral.ai](https://docs.mistral.ai)  
+**GitHub**: [mistralai/client-python](https://github.com/mistralai/client-python), [mistralai/client-ts](https://github.com/mistralai/client-ts)
 
-The official `mistralai` Python SDK provides a unified client to access Mistral's open and commercial models, offering chat completion, streaming, agents, embeddings, file management, and native OCR capabilities.
+## Installation
 
----
+### Python
+```bash
+pip install mistralai
+# Requires Python 3.9+
+```\
 
-## Table of Contents
-
-- [Client Initialization](#client-initialization)
-- [Model Management](#model-management)
-- [Chat Completion](#chat-completion)
-- [Streaming](#streaming)
-- [Async Usage](#async-usage)
-- [Structured Outputs](#structured-outputs)
-- [Tool & Function Calling](#tool--function-calling)
-- [Agents API](#agents-api)
-- [OCR API (Mistral OCR)](#ocr-api-mistral-ocr)
-- [Embeddings](#embeddings)
-- [Files API](#files-api)
-- [Error Handling](#error-handling)
+### TypeScript/JavaScript
+```bash
+npm install @mistralai/mistralai
+# ESM-only, Node.js 18+
+```
 
 ---
 
-## Client Initialization
+## SDK Initialization
 
-Initialize the client using standard environment variables or explicit API keys. Using the client as a context manager is recommended to manage the underlying connection pool.
-
-### `class mistralai.Mistral`
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `api_key` | `str` | `os.environ.get("MISTRAL_API_KEY")` | Your Mistral API key. |
-| `endpoint` | `str` | `"https://api.mistral.ai"` | The API base URL endpoint. |
-| `timeout` | `float` | `None` | Custom timeout in seconds for request transactions. |
-
+### Python
 ```python
 import os
 from mistralai import Mistral
 
-# 1. Standard Client Initialization (reads MISTRAL_API_KEY from environment)
-client = Mistral()
+# Basic initialization
+client = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
 
-# 2. Explicit Key & Custom Configuration
-client_custom = Mistral(
-    api_key="your-api-key-here",
-    endpoint="https://api.mistral.ai",
-    timeout=60.0
+# Custom server URL (e.g., for Azure)
+client = Mistral(
+    api_key=os.environ["MISTRAL_API_KEY"],
+    server_url="https://api.mistral.ai"
 )
 
-# 3. Recommended Resource Management via Context Manager
-with Mistral() as client:
-    # Operations are performed here and connection pool is cleaned up automatically
-    pass
+# With custom HTTP client configuration
+from httpx import Client as HttpClient
+http_client = HttpClient(timeout=30.0)
+client = Mistral(
+    api_key=os.environ["MISTRAL_API_KEY"],
+    http_client=http_client
+)
+```
+
+### TypeScript/JavaScript
+```typescript
+import { Mistral } from "@mistralai/mistralai";
+
+// Basic initialization
+const mistral = new Mistral({
+  apiKey: process.env.MISTRAL_API_KEY
+});
+
+// Custom server URL
+const mistral = new Mistral({
+  apiKey: process.env.MISTRAL_API_KEY,
+  serverURL: "https://api.mistral.ai"
+});
+
+// Custom fetch options
+const mistral = new Mistral({
+  apiKey: process.env.MISTRAL_API_KEY,
+  fetchOptions: {
+    timeout: 30000
+  }
+});
 ```
 
 ---
 
-## Model Management
+## Authentication
 
-Query the list of available models.
+Mistral uses **API key authentication** via the `Authorization: Bearer` header.
 
-### `client.models.list()`
-
-```python
-import os
-from mistralai import Mistral
-
-# List all available model IDs
-with Mistral() as client:
-    models = client.models.list()
-    for model in models.data:
-        print(f"Model ID: {model.id} (Created: {model.created})")
+```bash
+# Set environment variable
+export MISTRAL_API_KEY="your-api-key"
 ```
+
+Get your API key from [Mistral Studio](https://studio.mistral.ai) (free tier available).
 
 ---
 
-## Chat Completion
+## Chat Completions (Core Generation)
 
-Submit message lists to get text generation completions.
-
-### `client.chat.complete(...)`
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `model` | `str` | *Required* | Targeted model ID (e.g. `"mistral-large-latest"`, `"open-mixtral-8x22b"`). |
-| `messages` | `list[dict]` | *Required* | Conversation history list. Message format: `{"role": "user"\|"assistant"\|"system", "content": "..."}`. |
-| `temperature` | `float` | `0.7` | Randomness parameter (0.0 to 1.0). Lower is more deterministic. |
-| `max_tokens` | `int` | `None` | Max limit on output tokens to generate. |
-| `top_p` | `float` | `1.0` | Nucleus sampling threshold. |
-| `random_seed` | `int` | `None` | Set a seed value for deterministic outputs. |
-| `safe_prompt` | `bool` | `False` | Toggles whether to inject a system prompt for content moderation. |
-| `response_format` | `dict` | `None` | Set formatting requirements (e.g. `{"type": "json_object"}`). |
-
+### Python - Unary (Simple)
 ```python
-from mistralai import Mistral
+response = client.chat.complete(
+    model="mistral-large-latest",
+    messages=[
+        {"role": "user", "content": "What is Mistral AI?"}
+    ]
+)
 
-# Standard text generation
-with Mistral() as client:
-    response = client.chat.complete(
-        model="mistral-large-latest",
-        messages=[
-            {"role": "system", "content": "You are a concise engineering assistant."},
-            {"role": "user", "content": "Explain the difference between Mixtral and Mistral Large."}
-        ],
-        temperature=0.2,
-        max_tokens=500
-    )
-    print(response.choices[0].message.content)
+print(response.choices[0].message.content)
 ```
 
----
-
-## Streaming
-
-Iteratively receive content chunks in real-time.
-
-### `client.chat.stream(...)`
-
+### Python - Streaming
 ```python
-from mistralai import Mistral
+response = client.chat.stream(
+    model="mistral-large-latest",
+    messages=[
+        {"role": "user", "content": "Explain machine learning"}
+    ]
+)
 
-with Mistral() as client:
-    response_stream = client.chat.stream(
-        model="mistral-large-latest",
-        messages=[
-            {"role": "user", "content": "Write a short creative story about a clockmaker."}
-        ]
-    )
-    
-    for chunk in response_stream:
-        # Extract text content delta from the stream chunk
-        content_delta = chunk.data.choices[0].delta.content
-        if content_delta is not None:
-            print(content_delta, end="", flush=True)
-    print()
+for chunk in response:
+    if chunk.data.choices[0].delta.content:
+        print(chunk.data.choices[0].delta.content, end="")
 ```
 
----
+### TypeScript - Unary
+```typescript
+const response = await mistral.chat.complete({
+  model: "mistral-large-latest",
+  messages: [
+    { role: "user", content: "What is Mistral AI?" }
+  ]
+});
 
-## Async Usage
-
-Perform concurrent, non-blocking completions and streams by utilizing the asynchronous client methods.
-
-### `client.chat.complete_async(...)` & `client.chat.stream_async(...)`
-
-```python
-import asyncio
-import os
-from mistralai import Mistral
-
-async def run_async_calls():
-    # Asynchronous context manager manages HTTP resources cleanly
-    async with Mistral() as client:
-        
-        # 1. Non-streaming async chat completion
-        response = await client.chat.complete_async(
-            model="mistral-large-latest",
-            messages=[{"role": "user", "content": "Give me a single-sentence startup idea."}]
-        )
-        print(f"Idea: {response.choices[0].message.content}\n")
-
-        # 2. Streaming async chat completion
-        stream_response = await client.chat.stream_async(
-            model="mistral-large-latest",
-            messages=[{"role": "user", "content": "Describe entropy in two paragraphs."}]
-        )
-        
-        async for chunk in stream_response:
-            content_delta = chunk.data.choices[0].delta.content
-            if content_delta is not None:
-                print(content_delta, end="", flush=True)
-        print()
-
-if __name__ == "__main__":
-    asyncio.run(run_async_calls())
+console.log(response.choices[0].message.content);
 ```
 
----
+### TypeScript - Streaming
+```typescript
+const response = await mistral.chat.stream({
+  model: "mistral-large-latest",
+  messages: [
+    { role: "user", content: "Explain machine learning" }
+  ]
+});
 
-## Structured Outputs
-
-Enforce JSON layouts or strict schema constraints using native JSON Mode or Pydantic parsing.
-
-### 1. Direct Pydantic Schema Parsing (`client.chat.parse`)
-
-The `.parse()` wrapper validates the output directly against a Pydantic `BaseModel`.
-
-```python
-import os
-from pydantic import BaseModel, Field
-from mistralai import Mistral
-
-# Define the target structured output schema
-class EmployeeExtract(BaseModel):
-    name: str = Field(description="The employee's full name.")
-    department: str = Field(description="The department they belong to.")
-    skills: list[str] = Field(description="List of tools or programming skills.")
-
-with Mistral() as client:
-    response = client.chat.parse(
-        model="mistral-large-latest",
-        messages=[
-            {"role": "user", "content": "Alice Vance joined the Frontend Engineering team as a senior developer. She specializes in React, TypeScript, and CSS-in-JS."}
-        ],
-        response_format=EmployeeExtract
-    )
-    
-    # Access parsed pydantic object natively
-    data = response.choices[0].message.parsed
-    print(f"Name: {data.name}")
-    print(f"Department: {data.department}")
-    print(f"Skills: {data.skills}")
-```
-
-### 2. Manual JSON Schema Mode
-
-For low-level constraints, pass the raw JSON schema directly into `client.chat.complete`.
-
-```python
-from mistralai import Mistral
-
-schema_spec = {
-    "type": "json_schema",
-    "json_schema": {
-        "name": "skills_extraction",
-        "schema": {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string"},
-                "skills": {"type": "array", "items": {"type": "string"}}
-            },
-            "required": ["name", "skills"]
-        },
-        "strict": True
-    }
+for await (const chunk of response) {
+  if (chunk.data.choices[0].delta.content) {
+    process.stdout.write(chunk.data.choices[0].delta.content);
+  }
 }
+```
 
-with Mistral() as client:
-    response = client.chat.complete(
-        model="mistral-large-latest",
-        messages=[
-            {"role": "user", "content": "Extract name and skills: Bob knows Rust and Go."}
-        ],
-        response_format=schema_spec
-    )
-    print(response.choices[0].message.content)
+### Common Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `model` | string | Model ID (e.g., `mistral-large-latest`) |
+| `messages` | array | Message history with `role` and `content` |
+| `temperature` | float | 0.0-1.0; higher = more creative (default: 0.3) |
+| `max_tokens` | int | Maximum tokens in response |
+| `top_p` | float | Nucleus sampling (0-1) |
+| `top_k` | int | Top-K sampling |
+| `min_tokens` | int | Minimum tokens to generate |
+| `random_seed` | int | For reproducibility |
+
+---
+
+## Available Models
+
+| Model | Context | Use Case |
+|-------|---------|----------|
+| `mistral-large-latest` | 128K | General-purpose, reasoning |
+| `mistral-medium-latest` | 32K | Balanced speed/quality |
+| `mistral-small-latest` | 32K | Fast, cost-efficient |
+| `codestral-latest` | 32K | Code generation/analysis |
+| `pixtral-12b-latest` | 128K | Vision/multimodal |
+
+**Note**: Always pin model versions in production (e.g., `mistral-large-2512`) rather than using `-latest`.
+
+---
+
+## Multimodal (Vision)
+
+### Python - Image Input
+```python
+import base64
+
+# From file
+with open("image.jpg", "rb") as f:
+    image_data = base64.standard_b64encode(f.read()).decode("utf-8")
+
+response = client.chat.complete(
+    model="pixtral-12b-latest",
+    messages=[
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Describe this image"},
+                {
+                    "type": "image",
+                    "image_url": f"data:image/jpeg;base64,{image_data}"
+                }
+            ]
+        }
+    ]
+)
+
+print(response.choices[0].message.content)
+```
+
+### TypeScript - Image Input
+```typescript
+import fs from "fs";
+import path from "path";
+
+const imageBuffer = fs.readFileSync("image.jpg");
+const base64Image = imageBuffer.toString("base64");
+
+const response = await mistral.chat.complete({
+  model: "pixtral-12b-latest",
+  messages: [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: "Describe this image" },
+        {
+          type: "image",
+          imageUrl: `data:image/jpeg;base64,${base64Image}`
+        }
+      ]
+    }
+  ]
+});
+
+console.log(response.choices[0].message.content);
 ```
 
 ---
 
-## Tool & Function Calling
+## Tool/Function Calling
 
-Bind Python function layouts as tools for the model. The model decides when to run the function and parses input variables.
+Mistral automatically detects when to call tools based on user requests.
 
+### Python
 ```python
-from mistralai import Mistral
-
-# 1. Define tool execution function signatures
-def check_order_status(order_id: str) -> str:
-    """Retrieve delivery status updates for a customer package.
-
-    Args:
-        order_id: The unique tracking identifier for the shipment.
-    """
-    if "123" in order_id:
-        return "In Transit - Expected Delivery tomorrow"
-    return "Delivered"
-
-# 2. Formulate JSON Schema tool definitions
-tools_declaration = [
-    {
-        "type": "function",
-        "function": {
-            "name": "check_order_status",
-            "description": "Retrieve delivery status updates for a customer package.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "order_id": {"type": "string", "description": "The unique tracking identifier"}
-                },
-                "required": ["order_id"]
+response = client.chat.complete(
+    model="mistral-large-latest",
+    messages=[
+        {
+            "role": "user",
+            "content": "What's the weather in Paris?"
+        }
+    ],
+    tools=[
+        {
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "description": "Get the current weather",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "location": {
+                            "type": "string",
+                            "description": "City name"
+                        },
+                        "unit": {
+                            "type": "string",
+                            "enum": ["celsius", "fahrenheit"]
+                        }
+                    },
+                    "required": ["location"]
+                }
             }
         }
-    }
-]
+    ]
+)
 
-with Mistral() as client:
-    user_prompt = "Can you look up where my package order #123-abc is?"
-    
-    # 3. Call model with tools
-    response = client.chat.complete(
-        model="mistral-large-latest",
-        messages=[{"role": "user", "content": user_prompt}],
-        tools=tools_declaration,
-        tool_choice="auto"
-    )
-    
-    # 4. Check if function call was proposed
-    tool_calls = response.choices[0].message.tool_calls
-    if tool_calls:
-        call = tool_calls[0]
-        if call.function.name == "check_order_status":
-            import json
-            args = json.loads(call.function.arguments)
-            execution_result = check_order_status(**args)
+# Check if tool was called
+choice = response.choices[0]
+if choice.message.tool_calls:
+    for tool_call in choice.message.tool_calls:
+        print(f"Tool: {tool_call.function.name}")
+        print(f"Args: {tool_call.function.arguments}")
+        
+        # Execute tool and send result back
+        if tool_call.function.name == "get_weather":
+            # Your implementation
+            weather_result = "Sunny, 20°C"
             
-            # 5. Return result to model to finalize response
+            # Continue conversation with tool result
+            messages = [
+                {"role": "user", "content": "What's the weather in Paris?"},
+                {"role": "assistant", "content": "", "tool_calls": [tool_call]},
+                {
+                    "role": "tool",
+                    "content": weather_result,
+                    "tool_call_id": tool_call.id
+                }
+            ]
             final_response = client.chat.complete(
                 model="mistral-large-latest",
-                messages=[
-                    {"role": "user", "content": user_prompt},
-                    response.choices[0].message, # Original assistant tool proposal
-                    {
-                        "role": "tool",
-                        "name": call.function.name,
-                        "content": execution_result,
-                        "tool_call_id": call.id
-                    }
-                ]
+                messages=messages
             )
             print(final_response.choices[0].message.content)
 ```
 
----
+### TypeScript
+```typescript
+const response = await mistral.chat.complete({
+  model: "mistral-large-latest",
+  messages: [
+    {
+      role: "user",
+      content: "What's the weather in Paris?"
+    }
+  ],
+  tools: [
+    {
+      type: "function",
+      function: {
+        name: "get_weather",
+        description: "Get the current weather",
+        parameters: {
+          type: "object",
+          properties: {
+            location: {
+              type: "string",
+              description: "City name"
+            },
+            unit: {
+              type: "string",
+              enum: ["celsius", "fahrenheit"]
+            }
+          },
+          required: ["location"]
+        }
+      }
+    }
+  ]
+});
 
-## Agents API
-
-Submit queries directly to your custom Agents created on the Mistral console.
-
-### `client.agents.complete(...)` & `client.agents.stream(...)`
-
-```python
-from mistralai import Mistral
-
-# Query a custom agent session
-with Mistral() as client:
-    response = client.agents.complete(
-        agent_id="my-custom-agent-id-here",
-        messages=[
-            {"role": "user", "content": "Help me write a performance review template."}
-        ]
-    )
-    print(response.choices[0].message.content)
+const choice = response.choices[0];
+if (choice.message.toolCalls) {
+  for (const toolCall of choice.message.toolCalls) {
+    console.log(`Tool: ${toolCall.function.name}`);
+    console.log(`Args: ${toolCall.function.arguments}`);
+    
+    // Execute and continue
+    const weatherResult = "Sunny, 20°C";
+    const messages = [
+      { role: "user" as const, content: "What's the weather in Paris?" },
+      { role: "assistant" as const, content: "", toolCalls: [toolCall] },
+      {
+        role: "tool" as const,
+        content: weatherResult,
+        toolCallId: toolCall.id
+      }
+    ];
+    
+    const finalResponse = await mistral.chat.complete({
+      model: "mistral-large-latest",
+      messages
+    });
+    console.log(finalResponse.choices[0].message.content);
+  }
+}
 ```
 
 ---
 
-## OCR API (Mistral OCR)
+## Structured Outputs (JSON Mode)
 
-Extract high-fidelity markdown layout, text, headers, footers, and table contents from PDFs or images.
+Force model to respond with valid JSON schema.
 
-### `client.ocr.process(...)`
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `model` | `str` | *Required* | Must be set to `"mistral-ocr-latest"`. |
-| `document` | `dict` | *Required* | Payload describing file source, e.g. `{"type": "document_url", "document_url": "..."}` or `{"type": "document_image", "image_url": "..."}`. |
-| `include_image_base64` | `bool` | `False` | Toggles outputting structural image frames in base64 data. |
-| `table_format` | `str` | `"markdown"` | Structure style for parsed tables: `"markdown"` or `"html"`. |
-
+### Python
 ```python
-import os
-from mistralai import Mistral
+response = client.chat.complete(
+    model="mistral-large-latest",
+    messages=[
+        {
+            "role": "user",
+            "content": "Extract the person's name and age"
+        }
+    ],
+    response_format={
+        "type": "json_schema",
+        "json_schema": {
+            "name": "person_info",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "age": {"type": "integer"}
+                },
+                "required": ["name", "age"]
+            }
+        }
+    }
+)
 
-with Mistral() as client:
-    # 1. Execute OCR processing on a document URL
-    ocr_response = client.ocr.process(
-        model="mistral-ocr-latest",
-        document={
-            "type": "document_url",
-            "document_url": "https://arxiv.org/pdf/2310.06825.pdf" # Example PDF paper
+# Parse JSON response
+import json
+data = json.loads(response.choices[0].message.content)
+print(f"Name: {data['name']}, Age: {data['age']}")
+```
+
+### TypeScript
+```typescript
+const response = await mistral.chat.complete({
+  model: "mistral-large-latest",
+  messages: [
+    {
+      role: "user",
+      content: "Extract the person's name and age"
+    }
+  ],
+  responseFormat: {
+    type: "json_schema",
+    jsonSchema: {
+      name: "person_info",
+      schema: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          age: { type: "integer" }
         },
-        table_format="markdown"
-    )
-    
-    # 2. Extract parsed pages and markdown layouts
-    for idx, page in enumerate(ocr_response.pages):
-        print(f"--- Page {page.index} Markdown Output ---")
-        print(page.markdown)
+        required: ["name", "age"]
+      }
+    }
+  }
+});
+
+const data = JSON.parse(response.choices[0].message.content);
+console.log(`Name: ${data.name}, Age: ${data.age}`);
 ```
 
 ---
 
 ## Embeddings
 
-Convert string inputs into numeric vector representations.
+Generate vector embeddings for semantic search and RAG.
 
-### `client.embeddings.create(...)`
-
+### Python
 ```python
-from mistralai import Mistral
+response = client.embeddings.create(
+    model="mistral-embed",
+    inputs=[
+        "Embed this sentence.",
+        "As well as this one.",
+    ]
+)
 
-with Mistral() as client:
-    # Generate vector arrays
-    response = client.embeddings.create(
-        model="mistral-embed",
-        inputs=[
-            "Retrieval Augmented Generation workflows are very efficient.",
-            "Text vectorization enables semantic search."
-        ]
-    )
-    
-    # Access dimensional array values
-    vector_dims = response.data[0].embedding
-    print(f"Embeddings Dimensions Length: {len(vector_dims)}")
+for embedding in response.data:
+    print(f"Embedding dimension: {len(embedding.embedding)}")
+    print(f"First 5 values: {embedding.embedding[:5]}")
 ```
+
+### TypeScript
+```typescript
+const response = await mistral.embeddings.create({
+  model: "mistral-embed",
+  input: [
+    "Embed this sentence.",
+    "As well as this one."
+  ]
+});
+
+for (const embedding of response.data) {
+  console.log(`Embedding dimension: ${embedding.embedding.length}`);
+  console.log(`First 5 values: ${embedding.embedding.slice(0, 5)}`);
+}
+```
+
+### Embedding Models
+
+| Model | Dimension | Use Case |
+|-------|-----------|----------|
+| `mistral-embed` | 1024 | General-purpose embeddings |
 
 ---
 
-## Files API
+## Async Support
 
-Manage files uploaded to the Mistral servers for fine-tuning or OCR tasks.
-
-### `client.files.upload(...)` & `client.files.list()`
-
+### Python
 ```python
+import asyncio
 from mistralai import Mistral
 
-with Mistral() as client:
-    # 1. Upload a document
-    with open("training_examples.jsonl", "rb") as f:
-        file_info = client.files.upload(
-            file={"file_name": "training_examples.jsonl", "content": f.read()},
-            purpose="fine-tune" # or "ocr"
+async def main():
+    async with Mistral(api_key="your-key") as client:
+        response = await client.chat.complete_async(
+            model="mistral-large-latest",
+            messages=[
+                {"role": "user", "content": "Hello!"}
+            ]
         )
-    print(f"File uploaded. ID: {file_info.id}")
+        print(response.choices[0].message.content)
 
-    # 2. List all uploaded files
-    all_files = client.files.list()
-    for file in all_files.data:
-        print(f"- {file.filename} (ID: {file.id}, Purpose: {file.purpose})")
+asyncio.run(main())
+```
 
-    # 3. Delete file
-    client.files.delete(file_id=file_info.id)
-    print(f"Deleted file: {file_info.id}")
+### TypeScript
+```typescript
+const response = await mistral.chat.complete({
+  model: "mistral-large-latest",
+  messages: [
+    { role: "user", content: "Hello!" }
+  ]
+});
+
+console.log(response.choices[0].message.content);
+// All methods are async by default
 ```
 
 ---
 
 ## Error Handling
 
-Intercept exceptions gracefully using the SDK validation error schema structures.
-
-### Exception Reference
-- `models.SDKError`: Primary exception catch-all for standard 4xx and 5xx API errors.
-- `models.HTTPValidationError`: Raised specifically on 422 HTTP responses indicating invalid parameters.
-
+### Python
 ```python
-from mistralai import Mistral, models
+from mistralai.exceptions import (
+    MistralError,
+    HTTPValidationError,
+    ResponseValidationError
+)
 
 try:
-    with Mistral() as client:
-        # Invalid parameters or non-existent model name triggers exception
-        response = client.chat.complete(
-            model="mistral-nonexistent-model",
-            messages=[{"role": "user", "content": "Hello!"}]
-        )
-except models.HTTPValidationError as e:
-    print(f"Parameter structural validation error: {e}")
-except models.SDKError as e:
-    print(f"Mistral API network or authentication error: {e.status_code} - {e.message}")
-except Exception as e:
-    print(f"Unexpected error: {e}")
+    response = client.chat.complete(
+        model="mistral-large-latest",
+        messages=[{"role": "user", "content": "Hello"}]
+    )
+except HTTPValidationError as e:
+    print(f"Validation error: {e.status_code}")
+except ResponseValidationError as e:
+    print(f"Response parsing error: {e.cause}")
+except MistralError as e:
+    print(f"API error: {str(e)}")
 ```
+
+### TypeScript
+```typescript
+import {
+  MistralError,
+  InvalidRequestError,
+  RequestTimeoutError,
+  ResponseValidationError
+} from "@mistralai/mistralai";
+
+try {
+  const response = await mistral.chat.complete({
+    model: "mistral-large-latest",
+    messages: [{ role: "user", content: "Hello" }]
+  });
+} catch (e) {
+  if (e instanceof RequestTimeoutError) {
+    console.error("Request timed out");
+  } else if (e instanceof InvalidRequestError) {
+    console.error("Invalid request:", e.message);
+  } else if (e instanceof ResponseValidationError) {
+    console.error("Response validation failed:", e.pretty());
+  } else if (e instanceof MistralError) {
+    console.error("Mistral API error:", e.message);
+  }
+}
+```
+
+---
+
+## Streaming Response Objects
+
+### Python Stream Event
+```python
+# Each stream chunk is a StreamEvent object
+chunk = {
+    "id": "string",
+    "object": "text_completion.chunk",
+    "created": 1234567890,
+    "model": "mistral-large-latest",
+    "data": {
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"content": "generated text"},
+                "finish_reason": None  # or "stop", "length", etc.
+            }
+        ]
+    }
+}
+```
+
+### TypeScript Stream Chunk
+```typescript
+interface StreamChunk {
+  id: string;
+  object: string;
+  created: number;
+  model: string;
+  data: {
+    choices: Array<{
+      index: number;
+      delta: { content?: string };
+      finishReason?: string;
+    }>;
+  };
+}
+```
+
+---
+
+## Models List & Management
+
+### Python
+```python
+# List available models
+models = client.models.list()
+for model in models.data:
+    print(f"{model.id} - {model.created}")
+
+# Get specific model
+model = client.models.get("mistral-large-latest")
+print(model)
+
+# Delete fine-tuned model
+deleted = client.models.delete("ft:mistral-7b:custom-id")
+print(deleted.deleted)
+```
+
+### TypeScript
+```typescript
+// List available models
+const models = await mistral.models.list();
+for (const model of models.data) {
+  console.log(`${model.id} - ${model.created}`);
+}
+
+// Get specific model
+const model = await mistral.models.get("mistral-large-latest");
+console.log(model);
+
+// Delete fine-tuned model
+const deleted = await mistral.models.delete("ft:mistral-7b:custom-id");
+console.log(deleted.deleted);
+```
+
+---
+
+## Advanced: File Uploads & Documents
+
+### Python - Upload Document
+```python
+# Upload file for RAG/document processing
+with open("document.pdf", "rb") as f:
+    uploaded_file = client.files.upload(file=f)
+    print(f"File ID: {uploaded_file.id}")
+
+# Use in chat
+response = client.chat.complete(
+    model="mistral-large-latest",
+    messages=[
+        {
+            "role": "user",
+            "content": "Summarize the uploaded document"
+        }
+    ],
+    # File context can be passed as needed
+)
+```
+
+### TypeScript - Upload Document
+```typescript
+import fs from "fs";
+
+// Upload file
+const fileStream = fs.createReadStream("document.pdf");
+const uploadedFile = await mistral.files.upload({
+  file: fileStream
+});
+console.log(`File ID: ${uploadedFile.id}`);
+
+// Use in chat
+const response = await mistral.chat.complete({
+  model: "mistral-large-latest",
+  messages: [
+    {
+      role: "user",
+      content: "Summarize the uploaded document"
+    }
+  ]
+});
+```
+
+---
+
+## Production Best Practices
+
+1. **Pin Model Versions**: Use specific versions (`mistral-large-2512`) rather than `-latest` aliases
+2. **Set Timeouts**: Configure HTTP timeouts to prevent hanging requests
+3. **Retry Logic**: Implement exponential backoff for transient errors
+4. **Rate Limiting**: Monitor quota usage and implement request batching
+5. **API Key Security**: Never embed keys in client-side code; use server-side proxies
+6. **Response Validation**: Always validate streaming responses for `finish_reason`
+7. **Token Budgets**: Monitor `max_tokens` to control costs
+8. **Caching**: Cache embeddings and frequently-requested completions
+9. **Monitoring**: Log model usage, latency, and error rates
+10. **Error Recovery**: Implement circuit breakers for cascading failures
+
+---
+
+## Quick Reference
+
+### Most Common Operations
+
+```python
+# Python: Basic chat
+from mistralai import Mistral
+client = Mistral(api_key="key")
+response = client.chat.complete(
+    model="mistral-large-latest",
+    messages=[{"role": "user", "content": "Hello"}]
+)
+print(response.choices[0].message.content)
+
+# Python: Streaming
+for chunk in client.chat.stream(model="mistral-large-latest", messages=[...]):
+    print(chunk.data.choices[0].delta.content, end="")
+
+# Python: Embeddings
+embeddings = client.embeddings.create(model="mistral-embed", inputs=["text"])
+print(embeddings.data[0].embedding)
+```
+
+```typescript
+// TypeScript: Basic chat
+import { Mistral } from "@mistralai/mistralai";
+const mistral = new Mistral({ apiKey: "key" });
+const response = await mistral.chat.complete({
+  model: "mistral-large-latest",
+  messages: [{ role: "user", content: "Hello" }]
+});
+console.log(response.choices[0].message.content);
+
+// TypeScript: Streaming
+const stream = await mistral.chat.stream({
+  model: "mistral-large-latest",
+  messages: [...]
+});
+for await (const chunk of stream) {
+  process.stdout.write(chunk.data.choices[0].delta.content || "");
+}
+
+// TypeScript: Embeddings
+const embeddings = await mistral.embeddings.create({
+  model: "mistral-embed",
+  input: ["text"]
+});
+console.log(embeddings.data[0].embedding);
+```
+
+### Response Structure
+```python
+# Chat completion response
+{
+    "id": "unique-id",
+    "object": "chat.completion",
+    "created": 1234567890,
+    "model": "mistral-large-latest",
+    "choices": [
+        {
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "response text",
+                "tool_calls": []  # if tools were called
+            },
+            "finish_reason": "stop"  # "stop", "length", "tool_calls"
+        }
+    ],
+    "usage": {
+        "prompt_tokens": 10,
+        "completion_tokens": 20,
+        "total_tokens": 30
+    }
+}
+```
+
+### Environment Setup
+```bash
+# Set API key
+export MISTRAL_API_KEY="your-key-here"
+
+# Optional: Set custom server
+export MISTRAL_SERVER_URL="https://api.mistral.ai"
+```
+
+---
+
+## Links & Resources
+
+- **Official Docs**: https://docs.mistral.ai
+- **API Reference**: https://docs.mistral.ai/api/
+- **Python SDK GitHub**: https://github.com/mistralai/client-python
+- **TypeScript SDK GitHub**: https://github.com/mistralai/client-ts
+- **Mistral Studio**: https://studio.mistral.ai (playground)
+- **Changelog**: https://docs.mistral.ai/changelog/
+- **Discord Community**: https://discord.com/invite/mistralai
+
+---
+
+**Version**: SDK v0.3+ | **Updated**: June 2026
